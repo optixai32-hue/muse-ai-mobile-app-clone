@@ -8,30 +8,33 @@
  * 4. Bottom Toolbar: Settings gear shortcut, search filter input, and compose new chat button
  */
 
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  Platform,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { HugeiconsIcon } from '@hugeicons/react-native';
+import { Colors } from '@/constants/colors';
+import { SIDE_CHATS } from '@/constants/dummyData';
+import { showToast } from '@/context/ToastContext';
+import { supabase } from '@/lib/supabase';
+import { CreateNewThread, DeleteThread, GetAllUserThreads } from '@/services/chatHistory';
+import { SideChatItem } from '@/types';
 import {
   ArrowRight01Icon,
   Delete02Icon,
-  Settings01Icon,
-  Search01Icon,
   Edit02Icon,
+  Search01Icon,
+  Settings01Icon,
 } from '@hugeicons/core-free-icons';
-import { Colors } from '@/constants/colors';
-import { SIDE_CHATS } from '@/constants/dummyData';
-import { SideChatItem } from '@/types';
-import { showToast } from '@/context/ToastContext';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export interface SidebarDrawerProps {
   /** Visibility state of the drawer modal */
@@ -67,12 +70,72 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sideChats] = useState<SideChatItem[]>(SIDE_CHATS);
-
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const router = useRouter()
+  const [sideChatList, setSideChatList] = useState<SideChatItem[]>([])
+  const [mainChatThread, setMainChatThread] = useState<SideChatItem | null>(null)
   // Filter side chat topics by active search query
   const filteredChats = sideChats.filter((chat) =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const data = await supabase.auth.getSession();
+      const userEmail = data?.data?.session?.user?.email;
+      setUserEmail(userEmail ?? null);
+    }
+    loadUser()
+  }, [])
+
+  useEffect(() => {
+    userEmail && GetAllUserChatThreads();
+  }, [userEmail])
+
+
+
+  const CreateNewSideChat = async () => {
+    //Create a new side chat and close the drawer
+
+    const sideThread = await CreateNewThread(userEmail ?? '', 'side', 'New Side Chat');
+    console.log("New Side Thread Created", sideThread)
+
+    router.replace({
+      pathname: '/(tabs)/chat',
+      params: {
+        thread_id: sideThread?.id,
+        chatType: 'side'
+      }
+    })
+    GetAllUserChatThreads();
+    onClose();
+    // onNewChat();
+  }
+
+  const GetAllUserChatThreads = async () => {
+    const data = await GetAllUserThreads(userEmail ?? '');
+    console.log(data);
+
+    const mainChat = data.find((thread: any) => thread.type === 'main');
+    const sideChats: SideChatItem[] = data
+      ?.filter((thread: any) => thread.type === 'side')
+      ?.map((thread: any) => ({
+        id: thread.id,
+        title: thread.title,
+        hasUnreadDot: thread.has_unread_updates ?? false
+      })) as SideChatItem[];
+    console.log(sideChats)
+    setSideChatList(sideChats)
+    setMainChatThread(mainChat)
+  }
+
+  const deleteThread = async (threadId: string) => {
+    const data = await DeleteThread(threadId);
+    console.log(data);
+    // Refresh the side chat list after deletion
+    userEmail && GetAllUserChatThreads();
+  }
 
   return (
     <Modal
@@ -108,8 +171,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             <TouchableOpacity
               style={styles.mainChatCapsule}
               onPress={() => {
-                showToast('Main chat');
-                onSelectChat('Main chat');
+                router.replace({
+                  pathname: '/(tabs)/chat',
+                  params: {
+                    thread_id: mainChatThread?.id,
+                    chatType: 'main'
+                  }
+                })
+                // onSelectChat('Main chat');
                 onClose();
               }}
               activeOpacity={0.8}>
@@ -129,41 +198,56 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeaderText}>Side chats</Text>
 
-              <TouchableOpacity
-                style={styles.trashBtn}
-                onPress={() => {
-                  showToast('Side chats cleared');
-                  onClearSideChats?.();
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel="Clear side chats">
-                <HugeiconsIcon
-                  icon={Delete02Icon}
-                  size={20}
-                  color={Colors.iconMuted}
-                  strokeWidth={1.8}
-                />
-              </TouchableOpacity>
+
             </View>
 
             {/* Side Chats List */}
-            {filteredChats.map((chat) => (
-              <TouchableOpacity
-                key={chat.id}
-                style={styles.chatRow}
-                onPress={() => {
-                  showToast(chat.title);
-                  onSelectChat(chat.title);
-                  onClose();
-                }}
-                activeOpacity={0.7}>
-                <Text style={styles.chatRowText} numberOfLines={1}>
-                  {chat.title}
-                </Text>
-
-                {/* Blue Indicator Dot if unread */}
-                {chat.hasUnreadDot && <View style={styles.blueDot} />}
-              </TouchableOpacity>
+            {sideChatList.map((chat, index) => (
+              <View>
+                <TouchableOpacity
+                  key={index}
+                  style={styles.chatRow}
+                  onPress={() => {
+                    router.replace({
+                      pathname: '/(tabs)/chat',
+                      params: {
+                        thread_id: chat.id,
+                        chatType: 'side'
+                      }
+                    })
+                    // onSelectChat(chat.title);
+                    onClose();
+                  }}
+                  activeOpacity={0.7}>
+                  <Text style={styles.chatRowText} numberOfLines={1}>
+                    {chat.title}
+                  </Text>
+                  <View style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4
+                  }}>
+                    {/* Blue Indicator Dot if unread */}
+                    {chat.hasUnreadDot && <View style={styles.blueDot} />}
+                    <TouchableOpacity
+                      style={styles.trashBtn}
+                      onPress={() => {
+                        deleteThread(chat.id)
+                        onClearSideChats?.();
+                      }}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Clear side chats">
+                      <HugeiconsIcon
+                        icon={Delete02Icon}
+                        size={20}
+                        color={Colors.iconMuted}
+                        strokeWidth={1.8}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              </View>
             ))}
           </ScrollView>
 
@@ -208,9 +292,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             <TouchableOpacity
               style={styles.circleBtn}
               onPress={() => {
-                showToast('New chat');
-                onClose();
-                onNewChat();
+                CreateNewSideChat()
+
               }}
               activeOpacity={0.7}
               accessibilityLabel="New chat">

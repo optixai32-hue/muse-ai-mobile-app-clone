@@ -7,43 +7,107 @@
  * - Simple on-click Toast triggers
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  Keyboard,
-  TouchableWithoutFeedback,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HugeiconsIcon } from '@hugeicons/react-native';
+import { Colors } from '@/constants/colors';
+import { showToast } from '@/context/ToastContext';
+import { getApiUrl } from '@/lib/services';
+import { supabase } from '@/lib/supabase';
+import { CreateNewThread, getThread, LoadMessages, saveMessage } from '@/services/chatHistory';
+import { ChatMessage } from '@/types';
 import {
   Add01Icon,
   Mic01Icon,
   SentIcon,
 } from '@hugeicons/core-free-icons';
-import { Colors } from '@/constants/colors';
-import { INITIAL_CHAT_MESSAGES } from '@/constants/dummyData';
-import { ChatMessage } from '@/types';
-import { showToast } from '@/context/ToastContext';
-
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import axios from 'axios';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function ChatScreen() {
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
+  const [isSending, setIsSending] = useState(false);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [threadData, setThreadData] = useState<any>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const { thread_id, chatType } = useLocalSearchParams();
+
+  useEffect(() => {
+    if (thread_id) {
+      setThreadId(thread_id as string);
+    }
+  }, [thread_id]);
 
   // Calculate header height offset for iOS KeyboardAvoidingView (SafeAreaView top + AppHeader height)
   const headerOffset = Platform.OS === 'ios' ? insets.top + 98 : 0;
 
   useEffect(() => {
+    const loadUser = async () => {
+      const data = await supabase.auth.getSession();
+      const userEmail = data?.data?.session?.user?.email;
+      setUserEmail(userEmail ?? null);
+    }
+    loadUser()
+  }, [])
+
+  useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
+
+  useEffect(() => {
+    userEmail && GetThreadData();
+    threadId && userEmail && getChatHistory();
+  }, [threadId, userEmail])
+
+  const getChatHistory = async () => {
+    const messages = await LoadMessages(threadId ?? '');
+    const MappedMessages = messages?.map((msg: any) => ({
+      id: msg.id,
+      sender: msg.role === 'user' ? 'user' : 'agent',
+      text: msg.content,
+      timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    })) as ChatMessage[];
+
+    setMessages(MappedMessages ?? []);
+  }
+
+
+  const GetThreadData = async () => {
+    if (!threadId) {
+      //Its Main Thread and check if It already exist in DB?
+      //MainThreadId=<userEmail-main>
+
+      const Thread = await getThread(threadId ?? '', userEmail ?? '');
+      if (!Thread) {
+        //Create New Main Thread
+        const newThread = await CreateNewThread(userEmail ?? '', 'main', 'Main Chat');
+        console.log(newThread)
+      }
+
+      //Save ThreadData in state
+      console.log(Thread)
+      setThreadData(Thread);
+      setThreadId(Thread?.id ?? null);
+    }
+  }
+
+
 
   // Scroll to bottom when keyboard appears
   useEffect(() => {
@@ -56,10 +120,11 @@ export default function ChatScreen() {
     return () => sub.remove();
   }, []);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
 
+    setIsSending(true);
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: 'user',
@@ -70,6 +135,35 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
     showToast('Message sent');
+    await saveMessage(userEmail ?? '', threadId ?? '', 'user', text, {})
+    try {
+      const ApiUrl = getApiUrl('/chat');
+      console.log('Sending message to API:', ApiUrl, userMsg);
+      const result = await axios.post(ApiUrl, {
+        messages: [...messages, userMsg],
+      });
+
+      const data = result.data;
+      console.log('API response:', data);
+      const agentMsg: ChatMessage = {
+        id: `msg-${Date.now() + 1}`,
+        sender: 'agent',
+        text: data?.output ?? 'No Response from AI agent, Try Again',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+      setIsSending(false);
+
+      setMessages((prev) => [...prev, agentMsg]);
+      await saveMessage(userEmail ?? '', threadId ?? '', 'assistant', data?.output ?? 'No Response from AI agent, Try Again', {})
+
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+      showToast('Failed to send message');
+      setIsSending(false);
+
+    }
+    setIsSending(false);
   };
 
   return (
@@ -118,11 +212,18 @@ export default function ChatScreen() {
                           isUser ? styles.userBubbleText : styles.agentBubbleText,
                         ]}>
                         {msg.text}
+
                       </Text>
                     </View>
                   </TouchableOpacity>
                 );
               })}
+
+              {isSending && (
+                <Text style={{ fontStyle: 'italic', color: Colors.iconMuted, textAlign: 'left', marginTop: 8 }}>
+                  <ActivityIndicator />  AI is typing...
+                </Text>
+              )}
             </View>
           </TouchableWithoutFeedback>
         </ScrollView>
