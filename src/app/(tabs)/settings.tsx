@@ -15,6 +15,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import {
   Grid02Icon,
@@ -30,6 +31,8 @@ import { SETTINGS_PLAN_DATA } from '@/constants/dummyData';
 import { showToast } from '@/context/ToastContext';
 
 export default function SettingsScreen() {
+  const router = useRouter();
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -64,16 +67,16 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 2. Primary Group: Connectors & Pricing */}
+        {/* 2. Primary Group: Tools & Connections & Pricing */}
         <View style={styles.groupCard}>
           <TouchableOpacity
             style={styles.listItem}
-            onPress={() => showToast('Connectors')}
+            onPress={() => router.push('/tools' as any)}
             activeOpacity={0.65}>
             <View style={styles.listIconCol}>
               <HugeiconsIcon icon={Grid02Icon} size={22} color={Colors.iconDark} strokeWidth={2} />
             </View>
-            <Text style={styles.listLabel}>Connectors</Text>
+            <Text style={styles.listLabel}>Tools & Connections</Text>
             <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={Colors.iconMuted} strokeWidth={1.8} />
           </TouchableOpacity>
 

@@ -1,137 +1,147 @@
-import { agent } from "@/lib/openAiAgent";
-import { closeBrowserSessions } from "@/services/tools/BrowserbaseSession";
-import { ChatMessage } from "@/types";
-import { AgentInputItem, run } from "@openai/agents";
+import {
+  createCooperAgentForUser,
+  mapMessages,
+  parseToolOutput,
+} from '@/lib/composioAgent';
+import { validateUserFromRequest } from '@/lib/composioBackend';
+import { closeBrowserSessions } from '@/services/tools/BrowserbaseSession';
+import { run } from '@openai/agents';
 
 export async function POST(req: Request) {
-    const { messages = [] } = await req.json();
+  let reqBody: any = {};
+  try {
+    reqBody = await req.json();
+  } catch {
+    reqBody = {};
+  }
 
-    const input = mapMessages(messages);
-    const encoder = new TextEncoder();
+  const { messages = [] } = reqBody;
 
-    const stream = new ReadableStream({
-        async start(controller) {
-            const send = (data: unknown) =>
-                controller.enqueue(
-                    encoder.encode(JSON.stringify(data) + "\n")
-            );
-            const browserSessionIds = new Set<string>();
-            let loginRequired = false;
+  let activeUserId: string | null = null;
+  try {
+    const userAuth = await validateUserFromRequest(req, reqBody.userId);
+    activeUserId = userAuth.userId;
+  } catch {
+    activeUserId = reqBody.userId || null;
+  }
 
-            try {
-                const result = await run(agent, input, {
-                    stream: true,
-                    maxTurns: 30,
-                });
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(data)}\n`));
+      };
 
-                for await (const event of result) {
-                    if (
-                        event.type === "run_item_stream_event" &&
-                        event.name === "tool_output"
-                    ) {
-                        const output = parseOutput(
-                            (event.item as any).output
-                        );
+      const browserSessionIds = new Set<string>();
+      let loginRequired = false;
 
-                        if (
-                            output?.type === "browser_session" &&
-                            typeof output.sessionId === "string"
-                        ) {
-                            browserSessionIds.add(output.sessionId);
+      try {
+        const agent = await createCooperAgentForUser(activeUserId || '');
+        const result = await run(agent, mapMessages(messages), {
+          stream: true,
+          maxTurns: 30,
+        });
 
-                            send({
-                                type: "browser",
-                                browser: output,
-                            });
-                        }
+        for await (const event of result) {
+          if (
+            event.type !== 'run_item_stream_event' ||
+            event.name !== 'tool_output'
+          ) {
+            continue;
+          }
 
-                        if (
-                            output?.type === "close_browser_result" &&
-                            output.sessionId
-                        ) {
-                            browserSessionIds.delete(output.sessionId);
-                        }
+          const output = parseToolOutput((event.item as any).output);
 
-                        if (output?.status === "login_required") {
-                            loginRequired = true;
-                        }
-                    }
-                }
+          if (
+            output?.type === 'browser_session' &&
+            typeof output.sessionId === 'string'
+          ) {
+            browserSessionIds.add(output.sessionId);
+            send({
+              type: 'browser',
+              browser: output,
+            });
+          }
 
-                // Streamed results are settled once iteration finishes.
-                // completed can also be awaited explicitly.
-                await result.completed;
+          if (
+            output?.type === 'close_browser_result' &&
+            typeof output.sessionId === 'string'
+          ) {
+            browserSessionIds.delete(output.sessionId);
+          }
 
-                send({
-                    type: "final",
-                    output: result.finalOutput ?? "",
-                });
+          if (output?.status === 'login_required') {
+            loginRequired = true;
+          }
+        }
 
-            } catch (error) {
-                console.error(error);
+        await result.completed;
 
-                send({
-                    type: "error",
-                    message: getAgentErrorMessage(error),
-                });
+        const output = result.finalOutput ?? '';
 
-            } finally {
-                if (
-                    !loginRequired &&
-                    browserSessionIds.size > 0
-                ) {
-                    try {
-                        await closeBrowserSessions(browserSessionIds);
-                    } catch (closeError) {
-                        console.error(closeError);
-                    }
-                }
+        const connectCta = extractConnectCta(output);
+        send({
+          type: 'final',
+          output: connectCta ? cleanConnectLinkFromOutput(output) : output,
+          connectCta,
+        });
+      } catch (error) {
+        console.error('[chat+api] Composio agent error:', error);
+        send({
+          type: 'error',
+          message: getAgentErrorMessage(error),
+        });
+      } finally {
+        if (!loginRequired && browserSessionIds.size > 0) {
+          try {
+            await closeBrowserSessions(browserSessionIds);
+          } catch (closeError) {
+            console.error('[chat+api] Browserbase session pause failed:', closeError);
+          }
+        }
 
-                controller.close();
-            }
-        },
-    });
+        controller.close();
+      }
+    },
+  });
 
-    return new Response(stream, {
-        headers: {
-            "Content-Type": "application/x-ndjson",
-            "Cache-Control": "no-cache",
-        },
-    });
-}
-
-function mapMessages(messages: ChatMessage[]): AgentInputItem[] {
-    return messages.map(message =>
-        message.sender === "agent"
-            ? {
-                role: "assistant",
-                status: "completed",
-                content: [{
-                    type: "output_text",
-                    text: message.text,
-                }],
-            }
-            : {
-                role: "user",
-                content: message.text,
-            }
-    ) as AgentInputItem[];
-}
-
-function parseOutput(output: unknown) {
-    if (typeof output !== "string") return output;
-
-    try {
-        return JSON.parse(output);
-    } catch {
-        return null;
-    }
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson',
+      'Cache-Control': 'no-cache',
+    },
+  });
 }
 
 function getAgentErrorMessage(error: unknown) {
-    if (error instanceof Error) {
-        return `Agent failed: ${error.message}`;
-    }
+  if (error instanceof Error) {
+    return `Agent failed: ${error.message}`;
+  }
 
-    return "Agent failed";
+  return 'Agent failed';
+}
+
+function extractConnectCta(output: string) {
+  const urlMatch = output.match(/https:\/\/connect\.composio\.dev\/link\/[A-Za-z0-9_-]+/);
+  if (!urlMatch) return undefined;
+
+  const toolMatch =
+    output.match(/connect\s+([A-Za-z0-9 ]+)\s+here/i) ||
+    output.match(/connect\s+([A-Za-z0-9 ]+)/i);
+
+  const toolName = toolMatch?.[1]?.trim().replace(/\s+/g, ' ') || 'Tool';
+
+  return {
+    toolName,
+    connectUrl: urlMatch[0],
+  };
+}
+
+function cleanConnectLinkFromOutput(output: string) {
+  return output
+    .replace(/\*\*\[Connect [^\]]+\]\(https:\/\/connect\.composio\.dev\/link\/[A-Za-z0-9_-]+\)\*\*/gi, '')
+    .replace(/\[Connect [^\]]+\]\(https:\/\/connect\.composio\.dev\/link\/[A-Za-z0-9_-]+\)/gi, '')
+    .replace(/https:\/\/connect\.composio\.dev\/link\/[A-Za-z0-9_-]+/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

@@ -3,24 +3,25 @@
  *
  * Minimalist, clean conversational companion UI:
  * - Scrollable message thread
- * - Floating prompt bar (+ attachment, input box, voice mic, send action)
- * - Simple on-click Toast triggers
+ * - Composio-powered assistant responses
  */
 
-import { ChatBrowserPreview } from '@/components/common/ChatBrowserPreview';
 import { Colors } from '@/constants/colors';
 import { showToast } from '@/context/ToastContext';
 import { getApiUrl } from '@/lib/services';
 import { supabase } from '@/lib/supabase';
 import { CreateNewThread, getThread, LoadMessages, saveMessage } from '@/services/chatHistory';
 import { ChatMessage } from '@/types';
+import { ChatBrowserPreview } from '@/components/common/ChatBrowserPreview';
 import {
   Add01Icon,
+  Link02Icon,
   Mic01Icon,
   SentIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useLocalSearchParams } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -36,6 +37,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 export default function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -45,8 +47,9 @@ export default function ChatScreen() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threadData, setThreadData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const { thread_id, chatType } = useLocalSearchParams();
+  const { thread_id } = useLocalSearchParams();
 
   useEffect(() => {
     if (thread_id) {
@@ -54,17 +57,19 @@ export default function ChatScreen() {
     }
   }, [thread_id]);
 
-  // Calculate header height offset for iOS KeyboardAvoidingView (SafeAreaView top + AppHeader height)
+  // Calculate header height offset for iOS KeyboardAvoidingView
   const headerOffset = Platform.OS === 'ios' ? insets.top + 98 : 0;
 
   useEffect(() => {
     const loadUser = async () => {
       const data = await supabase.auth.getSession();
-      const userEmail = data?.data?.session?.user?.email;
-      setUserEmail(userEmail ?? null);
-    }
-    loadUser()
-  }, [])
+      const email = data?.data?.session?.user?.email;
+      const uid = data?.data?.session?.user?.id;
+      setUserEmail(email ?? null);
+      setUserId(uid ?? null);
+    };
+    loadUser();
+  }, []);
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -73,7 +78,7 @@ export default function ChatScreen() {
   useEffect(() => {
     userEmail && GetThreadData();
     threadId && userEmail && getChatHistory();
-  }, [threadId, userEmail])
+  }, [threadId, userEmail]);
 
   const getChatHistory = async () => {
     const messages = await LoadMessages(threadId ?? '');
@@ -85,29 +90,18 @@ export default function ChatScreen() {
     })) as ChatMessage[];
 
     setMessages(MappedMessages ?? []);
-  }
-
+  };
 
   const GetThreadData = async () => {
     if (!threadId) {
-      //Its Main Thread and check if It already exist in DB?
-      //MainThreadId=<userEmail-main>
-
       const Thread = await getThread(threadId ?? '', userEmail ?? '');
       if (!Thread) {
-        //Create New Main Thread
-        const newThread = await CreateNewThread(userEmail ?? '', 'main', 'Main Chat');
-        console.log(newThread)
+        await CreateNewThread(userEmail ?? '', 'main', 'Main Chat');
       }
-
-      //Save ThreadData in state
-      console.log(Thread)
       setThreadData(Thread);
       setThreadId(Thread?.id ?? null);
     }
-  }
-
-
+  };
 
   // Scroll to bottom when keyboard appears
   useEffect(() => {
@@ -120,7 +114,6 @@ export default function ChatScreen() {
     return () => sub.remove();
   }, []);
 
-
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
@@ -129,21 +122,21 @@ export default function ChatScreen() {
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
-      sender: "user",
+      sender: 'user',
       text,
       timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
+        hour: '2-digit',
+        minute: '2-digit',
       }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setInputText("");
+    setInputText('');
 
     await saveMessage(
-      userEmail ?? "",
-      threadId ?? "",
-      "user",
+      userEmail ?? '',
+      threadId ?? '',
+      'user',
       text,
       {}
     );
@@ -151,37 +144,38 @@ export default function ChatScreen() {
     const agentMessageId = `msg-${Date.now() + 1}`;
 
     try {
-      const ApiUrl = getApiUrl("/chat");
+      const ApiUrl = getApiUrl('/chat');
 
       const response = await fetch(ApiUrl, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           messages: [...messages, userMsg],
+          userId,
         }),
       });
 
       if (!response.ok || !response.body) {
-        throw new Error("Failed to connect to agent");
+        throw new Error('Failed to connect to agent');
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
-      let buffer = "";
+      let buffer = '';
 
       // Add placeholder message immediately
       setMessages((prev) => [
         ...prev,
         {
           id: agentMessageId,
-          sender: "agent",
-          text: "Working...",
+          sender: 'agent',
+          text: 'Thinking...',
           timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
+            hour: '2-digit',
+            minute: '2-digit',
           }),
         },
       ]);
@@ -195,73 +189,71 @@ export default function ChatScreen() {
           stream: true,
         });
 
-        const lines = buffer.split("\n");
+        const lines = buffer.split('\n');
 
         // Keep unfinished line
-        buffer = lines.pop() ?? "";
+        buffer = lines.pop() ?? '';
 
         for (const line of lines) {
           if (!line.trim()) continue;
 
           const data = JSON.parse(line);
 
-          // Browser created -> show preview immediately
-          if (data.type === "browser") {
+          if (data.type === 'browser') {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === agentMessageId
                   ? {
-                    ...msg,
-                    browserPreview: data.browser,
-                  }
+                      ...msg,
+                      browserPreview: data.browser,
+                    }
                   : msg
               )
             );
           }
 
-          // Final agent response
-          if (data.type === "final") {
+          if (data.type === 'final') {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === agentMessageId
                   ? {
-                    ...msg,
-                    text:
-                      data.output ??
-                      "No Response from AI agent, Try Again",
-                  }
+                      ...msg,
+                      text:
+                        data.output ??
+                        'No Response from AI agent, Try Again',
+                      connectCta: data.connectCta || undefined,
+                      browserPreview: data.browserPreview || msg.browserPreview,
+                    }
                   : msg
               )
             );
 
             await saveMessage(
-              userEmail ?? "",
-              threadId ?? "",
-              "assistant",
-              data.output ??
-              "No Response from AI agent, Try Again",
+              userEmail ?? '',
+              threadId ?? '',
+              'assistant',
+              data.output ?? 'No Response from AI agent, Try Again',
               {}
             );
           }
 
-          if (data.type === "error") {
+          if (data.type === 'error') {
             throw new Error(data.message);
           }
         }
       }
     } catch (error) {
-      console.error("Error sending message:", error);
-      const errorMessage = error instanceof Error
-        ? error.message
-        : "Failed to send message";
+      console.error('Error sending message:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to send message';
 
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === agentMessageId
             ? {
-              ...msg,
-              text: errorMessage,
-            }
+                ...msg,
+                text: errorMessage,
+              }
             : msg
         )
       );
@@ -272,6 +264,18 @@ export default function ChatScreen() {
     }
   };
 
+  const handleOpenConnectLink = async (connectUrl: string, toolName: string) => {
+    try {
+      showToast(`Opening ${toolName} connection...`);
+      if (Platform.OS === 'web') {
+        window.open(connectUrl, '_blank');
+      } else {
+        await WebBrowser.openAuthSessionAsync(connectUrl);
+      }
+    } catch (error: any) {
+      showToast(error?.message || `Could not open ${toolName} connection`);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -302,7 +306,7 @@ export default function ChatScreen() {
                 return (
                   <TouchableOpacity
                     key={msg.id}
-                    activeOpacity={0.8}
+                    activeOpacity={0.9}
                     onPress={() => showToast(msg.text)}
                     style={[
                       styles.messageRow,
@@ -319,20 +323,57 @@ export default function ChatScreen() {
                           isUser ? styles.userBubbleText : styles.agentBubbleText,
                         ]}>
                         {msg.text}
-
                       </Text>
+
+                      {!isUser && msg.connectCta ? (
+                        <View style={styles.connectCard}>
+                          <View style={styles.connectIcon}>
+                            <HugeiconsIcon
+                              icon={Link02Icon}
+                              size={20}
+                              color={Colors.primary}
+                              strokeWidth={2}
+                            />
+                          </View>
+                          <View style={styles.connectBody}>
+                            <Text style={styles.connectTitle}>
+                              Connect {msg.connectCta.toolName}
+                            </Text>
+                            <Text style={styles.connectSubtitle}>
+                              Complete authorization, then send done.
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.connectButton}
+                            onPress={() =>
+                              handleOpenConnectLink(
+                                msg.connectCta!.connectUrl,
+                                msg.connectCta!.toolName
+                              )
+                            }
+                            activeOpacity={0.8}>
+                            <Text style={styles.connectButtonText}>Connect</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+
                       {!isUser && msg.browserPreview ? (
                         <ChatBrowserPreview browserPreview={msg.browserPreview} />
                       ) : null}
-
                     </View>
                   </TouchableOpacity>
                 );
               })}
 
               {isSending && (
-                <Text style={{ fontStyle: 'italic', color: Colors.iconMuted, textAlign: 'left', marginTop: 8 }}>
-                  <ActivityIndicator />  AI is typing...
+                <Text
+                  style={{
+                    fontStyle: 'italic',
+                    color: Colors.iconMuted,
+                    textAlign: 'left',
+                    marginTop: 8,
+                  }}>
+                  <ActivityIndicator /> AI is typing...
                 </Text>
               )}
             </View>
@@ -347,7 +388,12 @@ export default function ChatScreen() {
               style={styles.circleBtn}
               onPress={() => showToast('Attach file')}
               activeOpacity={0.7}>
-              <HugeiconsIcon icon={Add01Icon} size={20} color={Colors.iconDark} strokeWidth={2.2} />
+              <HugeiconsIcon
+                icon={Add01Icon}
+                size={20}
+                color={Colors.iconDark}
+                strokeWidth={2.2}
+              />
             </TouchableOpacity>
 
             {/* Prompt Text Input */}
@@ -360,7 +406,7 @@ export default function ChatScreen() {
                   scrollViewRef.current?.scrollToEnd({ animated: true });
                 }, 100);
               }}
-              placeholder="Message in Start a health goal"
+              placeholder="Ask Cooper to read emails, send Slack msgs, or schedule meetings..."
               placeholderTextColor={Colors.iconMuted}
               returnKeyType="send"
               onSubmitEditing={handleSend}
@@ -372,14 +418,24 @@ export default function ChatScreen() {
                 style={[styles.circleBtn, styles.sendBtn]}
                 onPress={handleSend}
                 activeOpacity={0.8}>
-                <HugeiconsIcon icon={SentIcon} size={18} color={Colors.white} strokeWidth={2.4} />
+                <HugeiconsIcon
+                  icon={SentIcon}
+                  size={18}
+                  color={Colors.white}
+                  strokeWidth={2.4}
+                />
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 style={styles.circleBtn}
                 onPress={() => showToast('Voice input')}
                 activeOpacity={0.7}>
-                <HugeiconsIcon icon={Mic01Icon} size={20} color={Colors.iconDark} strokeWidth={2} />
+                <HugeiconsIcon
+                  icon={Mic01Icon}
+                  size={20}
+                  color={Colors.iconDark}
+                  strokeWidth={2}
+                />
               </TouchableOpacity>
             )}
           </View>
@@ -415,7 +471,7 @@ const styles = StyleSheet.create({
     marginVertical: 14,
   },
   dateBadge: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.dateBadgeBg,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 12,
@@ -423,7 +479,7 @@ const styles = StyleSheet.create({
   dateBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#888',
+    color: Colors.dateBadgeText,
   },
   messageRow: {
     marginBottom: 12,
@@ -437,7 +493,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   bubble: {
-    maxWidth: '82%',
+    maxWidth: '85%',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 20,
@@ -456,7 +512,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   userBubbleText: {
-    color: '#3B2318',
+    color: Colors.chatBubbleUserText,
     fontWeight: '500',
   },
   agentBubbleText: {
@@ -472,12 +528,12 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.inputBarBg,
     borderRadius: 26,
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#ECEEF0',
+    borderColor: Colors.inputBarBorder,
   },
   circleBtn: {
     width: 38,
@@ -491,9 +547,53 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14.5,
     color: Colors.iconDark,
     paddingHorizontal: 10,
     paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+  },
+  connectCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  connectIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primarySubtle,
+    marginRight: 10,
+  },
+  connectBody: {
+    flex: 1,
+    marginRight: 10,
+  },
+  connectTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: Colors.iconDark,
+  },
+  connectSubtitle: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  connectButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  connectButtonText: {
+    color: Colors.white,
+    fontSize: 12.5,
+    fontWeight: '700',
   },
 });

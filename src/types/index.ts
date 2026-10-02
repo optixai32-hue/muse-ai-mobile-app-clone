@@ -18,7 +18,11 @@ export interface ChatMessage {
   /** Formatted timestamp display string (e.g. "3:35 PM") */
   timestamp: string;
 
-  browserPreview?: BrowserSessionToolOutput
+  browserPreview?: BrowserSessionToolOutput;
+  connectCta?: {
+    toolName: string;
+    connectUrl: string;
+  };
 }
 
 /**
@@ -127,6 +131,8 @@ export interface TabItem {
   icon: any;
 }
 
+
+export * from './tools';
 
 export type BrowserSessionToolOutput = {
   type: 'browser_session',

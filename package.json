@@ -5,6 +5,8 @@
   "dependencies": {
     "@browserbasehq/sdk": "^2.21.0",
     "@browserbasehq/stagehand": "^4.1.0",
+    "@composio/core": "^0.17.0",
+    "@composio/openai-agents": "^0.10.1",
     "@expo/ui": "~57.0.21",
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react-native": "^1.0.16",

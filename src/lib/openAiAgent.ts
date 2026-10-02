@@ -2,8 +2,8 @@ import { browserActionTool, browserNavigateTool, browserReadTool, closeBrowserTo
 import { Agent } from "@openai/agents";
 
 export const agent = new Agent({
-    name: "AI Agent Cooper",
-    instructions: `
+  name: "AI Agent Cooper",
+  instructions: `
 You are Muse, an autonomous AI assistant.
 Decide whether the user's request requires a live browser.
 Use the browser only when the task requires:
@@ -65,11 +65,11 @@ preview URLs, API keys, or internal browser details.
 `,
 
 
-    model: "gpt-4o",
-    tools: [createBrowserbaseSessionTool,
-        browserNavigateTool,
-        browserActionTool,
-        browserReadTool,
-        closeBrowserTool
-    ]
+  model: "gpt-4o",
+  tools: [createBrowserbaseSessionTool,
+    browserNavigateTool,
+    browserActionTool,
+    browserReadTool,
+    closeBrowserTool
+  ]
 });
