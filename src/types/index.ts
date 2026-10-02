@@ -130,8 +130,9 @@ export interface TabItem {
 
 export type BrowserSessionToolOutput = {
   type: 'browser_session',
+  status: 'ready',
   sessionId: string,
   reason: string,
-  startUrl?: string,
+  currentUrl: string,
   previewUrl?: string
 }

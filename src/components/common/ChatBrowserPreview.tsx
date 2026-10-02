@@ -61,6 +61,7 @@ const styles = StyleSheet.create({
     browserPreviewFrame: {
         height: 220,
         backgroundColor: Colors.white,
+        minWidth: 200
     },
     browserPreviewLoading: {
         position: "absolute",

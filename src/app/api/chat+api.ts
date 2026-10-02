@@ -1,62 +1,137 @@
 import { agent } from "@/lib/openAiAgent";
+import { closeBrowserSessions } from "@/services/tools/BrowserbaseSession";
 import { ChatMessage } from "@/types";
 import { AgentInputItem, run } from "@openai/agents";
 
-type ChatReqBody = {
-    messages?: ChatMessage[]
+export async function POST(req: Request) {
+    const { messages = [] } = await req.json();
+
+    const input = mapMessages(messages);
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream({
+        async start(controller) {
+            const send = (data: unknown) =>
+                controller.enqueue(
+                    encoder.encode(JSON.stringify(data) + "\n")
+            );
+            const browserSessionIds = new Set<string>();
+            let loginRequired = false;
+
+            try {
+                const result = await run(agent, input, {
+                    stream: true,
+                    maxTurns: 30,
+                });
+
+                for await (const event of result) {
+                    if (
+                        event.type === "run_item_stream_event" &&
+                        event.name === "tool_output"
+                    ) {
+                        const output = parseOutput(
+                            (event.item as any).output
+                        );
+
+                        if (
+                            output?.type === "browser_session" &&
+                            typeof output.sessionId === "string"
+                        ) {
+                            browserSessionIds.add(output.sessionId);
+
+                            send({
+                                type: "browser",
+                                browser: output,
+                            });
+                        }
+
+                        if (
+                            output?.type === "close_browser_result" &&
+                            output.sessionId
+                        ) {
+                            browserSessionIds.delete(output.sessionId);
+                        }
+
+                        if (output?.status === "login_required") {
+                            loginRequired = true;
+                        }
+                    }
+                }
+
+                // Streamed results are settled once iteration finishes.
+                // completed can also be awaited explicitly.
+                await result.completed;
+
+                send({
+                    type: "final",
+                    output: result.finalOutput ?? "",
+                });
+
+            } catch (error) {
+                console.error(error);
+
+                send({
+                    type: "error",
+                    message: getAgentErrorMessage(error),
+                });
+
+            } finally {
+                if (
+                    !loginRequired &&
+                    browserSessionIds.size > 0
+                ) {
+                    try {
+                        await closeBrowserSessions(browserSessionIds);
+                    } catch (closeError) {
+                        console.error(closeError);
+                    }
+                }
+
+                controller.close();
+            }
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+        },
+    });
 }
 
-export async function POST(req: Request) {
+function mapMessages(messages: ChatMessage[]): AgentInputItem[] {
+    return messages.map(message =>
+        message.sender === "agent"
+            ? {
+                role: "assistant",
+                status: "completed",
+                content: [{
+                    type: "output_text",
+                    text: message.text,
+                }],
+            }
+            : {
+                role: "user",
+                content: message.text,
+            }
+    ) as AgentInputItem[];
+}
+
+function parseOutput(output: unknown) {
+    if (typeof output !== "string") return output;
 
     try {
-        const body = await req.json();
-        const messages = Array.isArray(body.messages) ? body.messages : [];
-
-        const MappedMessages = MapAgentInput(messages);
-
-        const result = await run(agent, MappedMessages);
-
-        let browserbaseSession = null;
-
-        for (const item of result?.newItems) {
-            if (item.type === 'tool_call_output_item') {
-                const output = item.output as any;
-
-                if (output?.type == 'browser_session') {
-                    browserbaseSession = output
-                }
-            }
-        }
-
-        return Response.json({
-            output: result.finalOutput ?? '',
-            browser: browserbaseSession
-        })
+        return JSON.parse(output);
+    } catch {
+        return null;
     }
-    catch (e) {
-        console.log(e);
-        return { e }
-    }
-
 }
 
-function MapAgentInput(messages: ChatMessage[]): AgentInputItem[] {
-    return messages.map((message: ChatMessage) => {
-        if (message.sender === 'agent') {
-            return {
-                role: 'assistant',
-                status: 'completed',
-                content: [
-                    {
-                        type: 'output_text',
-                        text: message.text
-                    }
-                ],
-            }
-        }
-        return {
-            role: 'user',
-            content: message.text
-        }
-    })
+function getAgentErrorMessage(error: unknown) {
+    if (error instanceof Error) {
+        return `Agent failed: ${error.message}`;
+    }
+
+    return "Agent failed";
 }

@@ -20,7 +20,6 @@ import {
   SentIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import axios from 'axios';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -121,53 +120,158 @@ export default function ChatScreen() {
     return () => sub.remove();
   }, []);
 
+
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
 
     setIsSending(true);
+
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
-      sender: 'user',
+      sender: "user",
       text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setInputText('');
-    showToast('Message sent');
+    setInputText("");
 
-    await saveMessage(userEmail ?? '', threadId ?? '', 'user', text, {})
+    await saveMessage(
+      userEmail ?? "",
+      threadId ?? "",
+      "user",
+      text,
+      {}
+    );
+
+    const agentMessageId = `msg-${Date.now() + 1}`;
+
     try {
-      const ApiUrl = getApiUrl('/chat');
-      const result = await axios.post(ApiUrl, {
-        messages: [...messages, userMsg],
+      const ApiUrl = getApiUrl("/chat");
+
+      const response = await fetch(ApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMsg],
+        }),
       });
 
-      const data = result.data;
-      console.log('API response:', data);
-
-      const agentMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
-        sender: 'agent',
-        text: data?.output ?? 'No Response from AI agent, Try Again',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        browserPreview: data?.browser ?? undefined
+      if (!response.ok || !response.body) {
+        throw new Error("Failed to connect to agent");
       }
-      setIsSending(false);
 
-      setMessages((prev) => [...prev, agentMsg]);
-      await saveMessage(userEmail ?? '', threadId ?? '', 'assistant', data?.output ?? 'No Response from AI agent, Try Again', {})
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
+      let buffer = "";
 
+      // Add placeholder message immediately
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: agentMessageId,
+          sender: "agent",
+          text: "Working...",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      ]);
+
+      while (true) {
+        const { value, done } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, {
+          stream: true,
+        });
+
+        const lines = buffer.split("\n");
+
+        // Keep unfinished line
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          const data = JSON.parse(line);
+
+          // Browser created -> show preview immediately
+          if (data.type === "browser") {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === agentMessageId
+                  ? {
+                    ...msg,
+                    browserPreview: data.browser,
+                  }
+                  : msg
+              )
+            );
+          }
+
+          // Final agent response
+          if (data.type === "final") {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === agentMessageId
+                  ? {
+                    ...msg,
+                    text:
+                      data.output ??
+                      "No Response from AI agent, Try Again",
+                  }
+                  : msg
+              )
+            );
+
+            await saveMessage(
+              userEmail ?? "",
+              threadId ?? "",
+              "assistant",
+              data.output ??
+              "No Response from AI agent, Try Again",
+              {}
+            );
+          }
+
+          if (data.type === "error") {
+            throw new Error(data.message);
+          }
+        }
+      }
     } catch (error) {
-      console.error('Error sending message:', error);
-      showToast('Failed to send message');
-      setIsSending(false);
+      console.error("Error sending message:", error);
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "Failed to send message";
 
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === agentMessageId
+            ? {
+              ...msg,
+              text: errorMessage,
+            }
+            : msg
+        )
+      );
+
+      showToast(errorMessage);
+    } finally {
+      setIsSending(false);
     }
-    setIsSending(false);
   };
+
 
   return (
     <KeyboardAvoidingView
