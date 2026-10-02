@@ -7,6 +7,7 @@
  * - Simple on-click Toast triggers
  */
 
+import { ChatBrowserPreview } from '@/components/common/ChatBrowserPreview';
 import { Colors } from '@/constants/colors';
 import { showToast } from '@/context/ToastContext';
 import { getApiUrl } from '@/lib/services';
@@ -135,21 +136,23 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
     showToast('Message sent');
+
     await saveMessage(userEmail ?? '', threadId ?? '', 'user', text, {})
     try {
       const ApiUrl = getApiUrl('/chat');
-      console.log('Sending message to API:', ApiUrl, userMsg);
       const result = await axios.post(ApiUrl, {
         messages: [...messages, userMsg],
       });
 
       const data = result.data;
       console.log('API response:', data);
+
       const agentMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         sender: 'agent',
         text: data?.output ?? 'No Response from AI agent, Try Again',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        browserPreview: data?.browser ?? undefined
       }
       setIsSending(false);
 
@@ -214,6 +217,10 @@ export default function ChatScreen() {
                         {msg.text}
 
                       </Text>
+                      {!isUser && msg.browserPreview ? (
+                        <ChatBrowserPreview browserPreview={msg.browserPreview} />
+                      ) : null}
+
                     </View>
                   </TouchableOpacity>
                 );

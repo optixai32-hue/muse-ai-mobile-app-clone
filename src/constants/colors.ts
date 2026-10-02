@@ -63,6 +63,7 @@ export const Colors = {
   inputBorder: '#E5E7EB',
   dockBg: '#FFFFFF',
 
+  browserPreviewBg: '#ffffff',
   // Google Branding
   googleBlue: '#4285F4',
   googleRed: '#EA4335',

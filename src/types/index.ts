@@ -17,6 +17,8 @@ export interface ChatMessage {
   text: string;
   /** Formatted timestamp display string (e.g. "3:35 PM") */
   timestamp: string;
+
+  browserPreview?: BrowserSessionToolOutput
 }
 
 /**
@@ -125,3 +127,11 @@ export interface TabItem {
   icon: any;
 }
 
+
+export type BrowserSessionToolOutput = {
+  type: 'browser_session',
+  sessionId: string,
+  reason: string,
+  startUrl?: string,
+  previewUrl?: string
+}

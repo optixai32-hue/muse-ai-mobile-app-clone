@@ -8,16 +8,35 @@ type ChatReqBody = {
 
 export async function POST(req: Request) {
 
-    const body = await req.json();
-    const messages = body.messages as ChatReqBody;
-    const MappedMessages = MapAgentInput(messages?.messages || []);
+    try {
+        const body = await req.json();
+        const messages = Array.isArray(body.messages) ? body.messages : [];
 
+        const MappedMessages = MapAgentInput(messages);
 
-    const result = await run(agent, MappedMessages);
+        const result = await run(agent, MappedMessages);
 
-    return Response.json({
-        output: result.finalOutput ?? ''
-    })
+        let browserbaseSession = null;
+
+        for (const item of result?.newItems) {
+            if (item.type === 'tool_call_output_item') {
+                const output = item.output as any;
+
+                if (output?.type == 'browser_session') {
+                    browserbaseSession = output
+                }
+            }
+        }
+
+        return Response.json({
+            output: result.finalOutput ?? '',
+            browser: browserbaseSession
+        })
+    }
+    catch (e) {
+        console.log(e);
+        return { e }
+    }
 
 }
 
