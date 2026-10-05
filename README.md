@@ -1,3 +1,6 @@
+<img width="1672" height="941" alt="Muse AI Clone App Tutorial" src="https://github.com/user-attachments/assets/79585d78-3fc4-4673-936e-cd7c14fa04dc" />
+
+
 # 🤖 Muse AI Clone
 
 A pixel-perfect, universal React Native application for **Muse AI** and companion **Cooper** — an autonomous AI agent for recurring tasks, workflows, and goals.
