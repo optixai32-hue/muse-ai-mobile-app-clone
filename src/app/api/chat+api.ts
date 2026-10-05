@@ -4,6 +4,7 @@ import {
   parseToolOutput,
 } from '@/lib/composioAgent';
 import { validateUserFromRequest } from '@/lib/composioBackend';
+import { parseScheduleIntentWithAgent } from '@/lib/scheduleIntentAgent';
 import { closeBrowserSessions } from '@/services/tools/BrowserbaseSession';
 import { run } from '@openai/agents';
 
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
     reqBody = {};
   }
 
-  const { messages = [] } = reqBody;
+  const { messages = [], timezone } = reqBody;
 
   let activeUserId: string | null = null;
   try {
@@ -36,6 +37,25 @@ export async function POST(req: Request) {
       let loginRequired = false;
 
       try {
+        const latestUserMessage = [...messages]
+          .reverse()
+          .find((message: any) => message?.sender === 'user' && typeof message?.text === 'string');
+        const scheduleConfirmation = latestUserMessage
+          ? await parseScheduleIntentWithAgent({
+              text: latestUserMessage.text,
+              timezone,
+            })
+          : null;
+
+        if (scheduleConfirmation) {
+          send({
+            type: 'schedule_confirmation',
+            output: 'Schedule this task?',
+            scheduleConfirmation,
+          });
+          return;
+        }
+
         const agent = await createCooperAgentForUser(activeUserId || '');
         const result = await run(agent, mapMessages(messages), {
           stream: true,

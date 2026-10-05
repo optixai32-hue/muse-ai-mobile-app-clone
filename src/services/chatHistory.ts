@@ -93,6 +93,21 @@ export const saveMessage = async (userEmail: string, threadId: string, role: Cha
     return data;
 }
 
+export const updateMessage = async (messageId: string, content: string, metadata: any) => {
+    const { data, error } = await supabase
+        .from('chat_messages')
+        .update({
+            content,
+            metadata
+        })
+        .eq('id', messageId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
 
 export const LoadMessages = async (threadid: string) => {
     const { data, error } = await supabase.from('chat_messages')

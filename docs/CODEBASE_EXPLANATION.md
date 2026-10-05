@@ -28,6 +28,8 @@ Welcome to the comprehensive technical documentation for **Muse AI Clone** (and 
 ### Key Architectural Highlights:
 - **Expo Router Tab Navigation:** Clean file-based routing with a dedicated `(tabs)` group for the 5 core tabs (`chat`, `feed`, `ideas`, `tasks`, `settings`).
 - **Keyboard-Adaptive Chat UI:** Built with `KeyboardAvoidingView`, dynamic safe-area insets, auto-scrolling to recent messages, tap-outside dismissal, and native `tabBarHideOnKeyboard: true` support.
+- **Connected AI Agent:** Chat can use Composio-backed workspace tools, Browserbase browser automation, schedule confirmations, and persisted chat history.
+- **Supabase Scheduled Tasks:** Confirmed schedules are stored in `scheduled_agent_tasks` and executed by the `agent-run` Edge Function dispatcher.
 - **Centralized Design Tokens:** All colors, spacing, and typography are defined in `src/constants/colors.ts` and `src/constants/theme.ts`.
 - **Modular Component Layout:** Clean shared headers, mascots, sliding session drawers, action sheets, and customization modals in `src/components/common/`.
 - **Global Toast Notification Context:** Lightweight toast messaging in `src/context/ToastContext.tsx`.
@@ -39,10 +41,16 @@ Welcome to the comprehensive technical documentation for **Muse AI Clone** (and 
 ```
 muse_ai_clone/
 ├── AGENTS.md                          # Agent rules and developer guidelines
-├── CODEBASE_EXPLANATION.md            # Complete file-by-file codebase guide (this file)
 ├── README.md                          # Quick start and project overview
 ├── app.json                           # Expo app configuration & branding assets
+├── docs/                              # Implementation documentation
+│   ├── CODEBASE_EXPLANATION.md        # Complete file-by-file codebase guide (this file)
+│   ├── COMPOSIO_TOOLS_SETUP.md        # Composio setup and current implementation notes
+│   └── scheduled-agent-tasks.md       # Scheduled task contract and Edge Function flow
 ├── package.json                       # Project dependencies & npm scripts
+├── supabase/
+│   └── functions/
+│       └── agent-run/                 # Edge Function for Composio, Browserbase, and schedules
 ├── tsconfig.json                      # TypeScript compiler path aliases (@/*)
 ├── assets/                            # Static media and app icons
 │   ├── expo.icon/                     # iOS App icon asset catalog
@@ -56,7 +64,9 @@ muse_ai_clone/
     ├── app/                           # Expo Router file-based screens
     │   ├── _layout.tsx                # Root layout, ThemeProvider, ToastProvider & Stack
     │   ├── index.tsx                  # Google Sign-in onboarding screen (Self-contained)
+    │   ├── api/                       # Expo API routes for chat and tool connections
     │   ├── home.tsx                   # Compatibility redirect to /(tabs)/chat
+    │   ├── tools.tsx                  # Tools & Connections screen
     │   └── (tabs)/                    # Dedicated 5-Tab Routing & Layout
     │       ├── _layout.tsx            # Master Tab Layout (AppHeader + Native Tabs + Modals)
     │       ├── index.tsx              # Tab index redirect to /chat
@@ -79,6 +89,8 @@ muse_ai_clone/
     │   ├── colors.ts                  # Centralized color palette tokens
     │   ├── theme.ts                   # Typography and spacing scale constants
     │   └── dummyData.ts               # Initial chat messages, side chats, & mock datasets
+    ├── lib/                           # Supabase, Composio, OpenAI, Browserbase, and schedule services
+    ├── services/                      # Chat history and tool service helpers
     └── types/                         # Core TypeScript interfaces & contracts
         └── index.ts                   # Centralized type definitions
 ```
@@ -97,6 +109,10 @@ muse_ai_clone/
   - `expo` (SDK 57): Core application platform.
   - `expo-router`: File-based navigation.
   - `@hugeicons/react-native` & `@hugeicons/core-free-icons`: Icon pack.
+  - `@supabase/supabase-js`: Auth, data, functions, and service clients.
+  - `@composio/core` / `@composio/openai-agents`: Connected workspace tools.
+  - `@openai/agents`: Chat agent runtime.
+  - `@browserbasehq/sdk`: Browserbase integration.
   - `react-native-safe-area-context`: Notched device inset handling.
   - `react-native-svg`: Vector rendering support.
 - **Scripts:**
@@ -146,6 +162,9 @@ muse_ai_clone/
   - Message thread with peach terracotta user bubbles (`#E8C4B4`) and soft gray agent bubbles (`#EEF0F2`).
   - Centered date badge ("Today").
   - Floating prompt bar with attachment button, text input, and voice/send action toggle.
+  - Composio Connect CTA rendering when the agent needs a missing connected tool.
+  - Schedule confirmation cards for recurring or future tasks.
+  - Browser preview support for Browserbase sessions.
   - **Keyboard Handling:** Uses dynamic `KeyboardAvoidingView` vertical offset (`insets.top + 98` on iOS), keyboard listeners to auto-scroll to the bottom when focusing, and `TouchableWithoutFeedback` to dismiss keyboard on background tap.
 
 #### [`src/app/(tabs)/feed.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/feed.tsx)
@@ -157,18 +176,30 @@ muse_ai_clone/
 #### [`src/app/(tabs)/tasks.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/tasks.tsx)
 - **Role:** Autonomous goal manager.
 - **Features:**
-  - Scheduled routines with schedule frequency tags.
+  - Scheduled routines loaded from Supabase.
   - Active/Paused status toggles.
-  - Interactive manual execution button ("Run") with real-time feedback badges ("Executed just now").
+  - Manual execution button that invokes the `agent-run` Edge Function with `mode = "run_scheduled_task"`.
   - "+ New" goal creation trigger.
 
 #### [`src/app/(tabs)/settings.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/settings.tsx)
 - **Role:** Comprehensive account settings, plan limits, and connectors hub.
 - **Features:**
   - Free Plan progress card (11% used, 890 remaining credits).
-  - Connectors sheet managing 7 workspace tools (Google, Notion, GitHub, Slack, Linear, Figma, X).
+  - Tools & Connections navigation for Composio-backed app connections.
   - Pricing & billing plans sheet.
   - Notifications, theme appearance, help & feedback, and sign-out actions.
+
+#### [`src/app/tools.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/tools.tsx)
+- **Role:** Tools & Connections screen.
+- **Features:** Fetches tools from Supabase, starts Composio OAuth linking, polls connection status, and supports manage/disconnect actions.
+
+#### [`src/app/api/chat+api.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/api/chat+api.ts)
+- **Role:** Chat API route.
+- **Features:** Validates the user, runs the Composio/OpenAI agent, extracts Browserbase previews, and returns Composio Connect CTAs when needed.
+
+#### [`src/app/api/tools/[toolId]/*+api.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/api/tools/%5BtoolId%5D)
+- **Role:** Tool connection API routes.
+- **Features:** Start Composio connect, check status, and disconnect/revoke a connected account.
 
 ---
 
@@ -302,4 +333,3 @@ npm run web
 # TypeScript type check (Zero errors guarantee)
 npx tsc --noEmit
 ```
-

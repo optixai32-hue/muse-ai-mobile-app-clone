@@ -8,9 +8,13 @@
 
 import { Colors } from '@/constants/colors';
 import { showToast } from '@/context/ToastContext';
+import {
+  createScheduledAgentTask,
+  formatScheduleRule,
+} from '@/lib/scheduledTasks';
 import { getApiUrl } from '@/lib/services';
 import { supabase } from '@/lib/supabase';
-import { CreateNewThread, getThread, LoadMessages, saveMessage } from '@/services/chatHistory';
+import { CreateNewThread, getThread, LoadMessages, saveMessage, updateMessage } from '@/services/chatHistory';
 import { ChatMessage } from '@/types';
 import { ChatBrowserPreview } from '@/components/common/ChatBrowserPreview';
 import {
@@ -87,6 +91,10 @@ export default function ChatScreen() {
       sender: msg.role === 'user' ? 'user' : 'agent',
       text: msg.content,
       timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      scheduleConfirmation: msg.metadata?.scheduleConfirmation,
+      scheduleStatus: msg.metadata?.scheduleStatus,
+      scheduledTaskId: msg.metadata?.scheduledTaskId,
+      scheduleError: msg.metadata?.scheduleError,
     })) as ChatMessage[];
 
     setMessages(MappedMessages ?? []);
@@ -94,9 +102,9 @@ export default function ChatScreen() {
 
   const GetThreadData = async () => {
     if (!threadId) {
-      const Thread = await getThread(threadId ?? '', userEmail ?? '');
+      let Thread = await getThread(threadId ?? '', userEmail ?? '');
       if (!Thread) {
-        await CreateNewThread(userEmail ?? '', 'main', 'Main Chat');
+        Thread = await CreateNewThread(userEmail ?? '', 'main', 'Main Chat');
       }
       setThreadData(Thread);
       setThreadId(Thread?.id ?? null);
@@ -154,6 +162,7 @@ export default function ChatScreen() {
         body: JSON.stringify({
           messages: [...messages, userMsg],
           userId,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
 
@@ -237,6 +246,40 @@ export default function ChatScreen() {
             );
           }
 
+          if (data.type === 'schedule_confirmation') {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === agentMessageId
+                  ? {
+                      ...msg,
+                      text: data.output ?? 'Schedule this task?',
+                      scheduleConfirmation: data.scheduleConfirmation,
+                      scheduleStatus: 'pending',
+                    }
+                  : msg
+              )
+            );
+
+            const savedScheduleMessage = await saveMessage(
+              userEmail ?? '',
+              threadId ?? '',
+              'assistant',
+              data.output ?? 'Schedule this task?',
+              {
+                scheduleConfirmation: data.scheduleConfirmation,
+                scheduleStatus: 'pending',
+              }
+            );
+
+            if (savedScheduleMessage?.id) {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === agentMessageId ? { ...msg, id: savedScheduleMessage.id } : msg
+                )
+              );
+            }
+          }
+
           if (data.type === 'error') {
             throw new Error(data.message);
           }
@@ -275,6 +318,98 @@ export default function ChatScreen() {
     } catch (error: any) {
       showToast(error?.message || `Could not open ${toolName} connection`);
     }
+  };
+
+  const handleConfirmSchedule = async (messageId: string) => {
+    const message = messages.find((msg) => msg.id === messageId);
+    if (!message?.scheduleConfirmation) return;
+
+    if (!userId) {
+      showToast('Please sign in before creating a schedule.');
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, scheduleStatus: 'saving', scheduleError: undefined }
+          : msg
+      )
+    );
+
+    try {
+      const task = await createScheduledAgentTask(userId, message.scheduleConfirmation, {
+        sourceThreadId: threadId,
+      });
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                text: 'Scheduled.',
+                scheduleStatus: 'confirmed',
+                scheduledTaskId: task.id,
+              }
+            : msg
+        )
+      );
+
+      await updateMessage(messageId, 'Scheduled.', {
+        scheduleConfirmation: message.scheduleConfirmation,
+        scheduleStatus: 'confirmed',
+        scheduledTaskId: task.id,
+      });
+
+      showToast('Schedule created');
+    } catch (error) {
+      console.error('Failed to create schedule:', error);
+      const errorMessage = getScheduleCreateErrorMessage(error);
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                scheduleStatus: 'failed',
+                scheduleError: errorMessage,
+              }
+            : msg
+        )
+      );
+
+      showToast(errorMessage);
+    }
+  };
+
+  const handleCancelSchedule = (messageId: string) => {
+    const message = messages.find((msg) => msg.id === messageId);
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, text: 'Schedule cancelled.', scheduleStatus: 'cancelled' }
+          : msg
+      )
+    );
+
+    if (message?.scheduleConfirmation) {
+      updateMessage(messageId, 'Schedule cancelled.', {
+        scheduleConfirmation: message.scheduleConfirmation,
+        scheduleStatus: 'cancelled',
+      }).catch((error) => {
+        console.error('Failed to persist schedule cancellation:', error);
+      });
+    }
+  };
+
+  const handleEditSchedule = (messageId: string) => {
+    const message = messages.find((msg) => msg.id === messageId);
+    if (!message?.scheduleConfirmation) return;
+
+    setInputText(message.scheduleConfirmation.originalPrompt);
+    handleCancelSchedule(messageId);
+    showToast('Edit the request, then send it again.');
   };
 
   return (
@@ -360,6 +495,71 @@ export default function ChatScreen() {
                       {!isUser && msg.browserPreview ? (
                         <ChatBrowserPreview browserPreview={msg.browserPreview} />
                       ) : null}
+
+                      {!isUser && msg.scheduleConfirmation ? (
+                        <View style={styles.scheduleCard}>
+                          <Text style={styles.scheduleTitle}>Schedule this task?</Text>
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>Task</Text>
+                            <Text style={styles.scheduleValue}>
+                              {msg.scheduleConfirmation.title}
+                            </Text>
+                          </View>
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>When</Text>
+                            <Text style={styles.scheduleValue}>
+                              {formatScheduleRule(msg.scheduleConfirmation.scheduleRule)}
+                            </Text>
+                          </View>
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>Delivery</Text>
+                            <Text style={styles.scheduleValue}>
+                              {formatDeliveryLabel(msg.scheduleConfirmation.delivery)}
+                            </Text>
+                          </View>
+                          <Text style={styles.scheduleSummary}>
+                            {msg.scheduleConfirmation.summary}
+                          </Text>
+
+                          {msg.scheduleError ? (
+                            <Text style={styles.scheduleError}>{msg.scheduleError}</Text>
+                          ) : null}
+
+                          <View style={styles.scheduleActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.scheduleButton,
+                                styles.schedulePrimaryButton,
+                                msg.scheduleStatus !== 'pending' && styles.scheduleButtonDisabled,
+                              ]}
+                              disabled={msg.scheduleStatus !== 'pending'}
+                              onPress={() => handleConfirmSchedule(msg.id)}
+                              activeOpacity={0.8}>
+                              <Text style={styles.schedulePrimaryButtonText}>
+                                {msg.scheduleStatus === 'saving'
+                                  ? 'Saving...'
+                                  : msg.scheduleStatus === 'confirmed'
+                                    ? 'Confirmed'
+                                    : 'Confirm'}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.scheduleButton}
+                              disabled={msg.scheduleStatus !== 'pending'}
+                              onPress={() => handleEditSchedule(msg.id)}
+                              activeOpacity={0.8}>
+                              <Text style={styles.scheduleButtonText}>Edit</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.scheduleButton}
+                              disabled={msg.scheduleStatus !== 'pending'}
+                              onPress={() => handleCancelSchedule(msg.id)}
+                              activeOpacity={0.8}>
+                              <Text style={styles.scheduleButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : null}
                     </View>
                   </TouchableOpacity>
                 );
@@ -443,6 +643,39 @@ export default function ChatScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+function formatDeliveryLabel(delivery?: string | null) {
+  return (delivery || 'chat')
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || 'Chat';
+}
+
+function getScheduleCreateErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+    return [
+      typeof record.message === 'string' ? record.message : 'Could not create schedule',
+      typeof record.details === 'string' ? record.details : null,
+      typeof record.hint === 'string' ? `Hint: ${record.hint}` : null,
+      typeof record.code === 'string' ? `Code: ${record.code}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return 'Could not create schedule';
 }
 
 const styles = StyleSheet.create({
@@ -595,5 +828,81 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  scheduleCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  scheduleTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.iconDark,
+    marginBottom: 10,
+  },
+  scheduleDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  scheduleLabel: {
+    width: 64,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  scheduleValue: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.iconDark,
+  },
+  scheduleSummary: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  scheduleError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Colors.error,
+    marginTop: 8,
+  },
+  scheduleActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  scheduleButton: {
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  schedulePrimaryButton: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  scheduleButtonDisabled: {
+    opacity: 0.65,
+  },
+  scheduleButtonText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Colors.iconDark,
+  },
+  schedulePrimaryButtonText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: Colors.white,
   },
 });

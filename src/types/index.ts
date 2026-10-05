@@ -23,7 +23,30 @@ export interface ChatMessage {
     toolName: string;
     connectUrl: string;
   };
+  scheduleConfirmation?: ScheduleConfirmation;
+  scheduleStatus?: 'pending' | 'saving' | 'confirmed' | 'cancelled' | 'failed';
+  scheduledTaskId?: string;
+  scheduleError?: string;
 }
+
+export type ScheduledTaskType = 'generic_prompt';
+
+export type ScheduleRule = {
+  frequency: 'daily' | 'weekly';
+  time: string;
+  weekday?: string;
+};
+
+export type ScheduleConfirmation = {
+  title: string;
+  originalPrompt: string;
+  taskType: ScheduledTaskType;
+  taskPayload: Record<string, unknown>;
+  scheduleRule: ScheduleRule;
+  timezone: string;
+  delivery: string;
+  summary: string;
+};
 
 /**
  * Chat topic item listed under "Side chats" in the sliding sidebar drawer.
@@ -51,6 +74,26 @@ export interface IdeaItem {
   description: string;
   /** Full prompt automatically loaded into chat input upon selection */
   prompt: string;
+}
+
+/**
+ * AI news story surfaced in the Feed tab.
+ */
+export interface AiNewsItem {
+  /** Unique news story identifier */
+  id: string;
+  /** Source or publication name */
+  source: string;
+  /** AI topic category shown as a compact chip */
+  category: 'Research' | 'Product' | 'Policy' | 'Funding' | 'Tools';
+  /** Story headline */
+  title: string;
+  /** Short summary preview */
+  summary: string;
+  /** Relative freshness label */
+  timeAgo: string;
+  /** Estimated read duration */
+  readTime: string;
 }
 
 /**

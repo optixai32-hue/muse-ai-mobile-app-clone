@@ -22,6 +22,7 @@ export const Colors = {
   surface: '#F8FAFC',        // Secondary card background (Slate 50)
   surfaceElevated: '#FFFFFF',// Elevated cards with shadow
   surfaceMuted: '#F1F5F9',   // Slate 100
+  surfaceInput: '#F7F8FA',    // Form field background
 
   // Text Colors
   text: '#0F172A',           // Primary text (Slate 900)
@@ -67,6 +68,15 @@ export const Colors = {
   inputBorder: '#E5E7EB',
   inputBarBorder: '#ECEEF0',
   dockBg: '#FFFFFF',
+  avatarPreviewBg: '#F3F4F6',
+  avatarOptionBg: '#F8FAFC',
+  avatarOptionSelectedBg: '#EFF6FF',
+  avatarOptionSelectedBorder: '#BFDBFE',
+  avatarAccentIndigo: '#4F46E5',
+  avatarAccentEmerald: '#059669',
+  avatarAccentAmber: '#D97706',
+  avatarAccentViolet: '#7C3AED',
+  avatarAccentRose: '#E11D48',
 
   browserPreviewBg: '#ffffff',
   // Google Branding

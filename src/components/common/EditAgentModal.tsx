@@ -38,13 +38,15 @@ export interface EditAgentModalProps {
 }
 
 const THEME_COLORS = [
-  '#2563EB', // Muse Blue
-  '#4F46E5', // Indigo
-  '#059669', // Emerald
-  '#D97706', // Amber
-  '#7C3AED', // Violet
-  '#E11D48', // Rose
+  Colors.primary,
+  Colors.avatarAccentIndigo,
+  Colors.avatarAccentEmerald,
+  Colors.avatarAccentAmber,
+  Colors.avatarAccentViolet,
+  Colors.avatarAccentRose,
 ];
+
+const AVATAR_OPTIONS = ['cooper', '🤖', '✨', '🧠', '🚀', '💡', '🎯', '🌱', '⚡'];
 
 export const EditAgentModal: React.FC<EditAgentModalProps> = ({
   visible,
@@ -56,14 +58,16 @@ export const EditAgentModal: React.FC<EditAgentModalProps> = ({
   onSave,
 }) => {
   const [name, setName] = useState(initialName);
+  const [selectedIcon, setSelectedIcon] = useState(initialIcon);
   const [selectedColor, setSelectedColor] = useState(initialColor);
 
   useEffect(() => {
     if (visible) {
       setName(initialName);
+      setSelectedIcon(initialIcon);
       setSelectedColor(initialColor);
     }
-  }, [visible, initialName, initialColor]);
+  }, [visible, initialName, initialIcon, initialColor]);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -72,7 +76,7 @@ export const EditAgentModal: React.FC<EditAgentModalProps> = ({
     onSave({
       name: trimmed,
       subtitle: initialSubtitle,
-      icon: initialIcon,
+      icon: selectedIcon,
       color: selectedColor,
     });
     showToast('Agent updated');
@@ -105,7 +109,7 @@ export const EditAgentModal: React.FC<EditAgentModalProps> = ({
 
                 {/* Avatar Preview */}
                 <View style={styles.avatarSection}>
-                  <MascotAvatar size={64} />
+                  <MascotAvatar size={68} icon={selectedIcon} color={selectedColor} />
                 </View>
 
                 {/* Name Input */}
@@ -121,6 +125,30 @@ export const EditAgentModal: React.FC<EditAgentModalProps> = ({
                     returnKeyType="done"
                     onSubmitEditing={handleSave}
                   />
+                </View>
+
+                {/* Emoji Avatar Picker */}
+                <View style={styles.avatarPickerGroup}>
+                  <Text style={styles.label}>Avatar</Text>
+                  <View style={styles.avatarGrid}>
+                    {AVATAR_OPTIONS.map((icon) => {
+                      const isSelected = selectedIcon === icon;
+                      return (
+                        <TouchableOpacity
+                          key={icon}
+                          style={[
+                            styles.avatarOption,
+                            isSelected && styles.avatarOptionSelected,
+                          ]}
+                          onPress={() => setSelectedIcon(icon)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={icon === 'cooper' ? 'Cooper avatar' : `${icon} avatar`}>
+                          <MascotAvatar size={34} icon={icon} color={selectedColor} />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 {/* Theme Color Dots */}
@@ -227,7 +255,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.avatarPreviewBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -249,7 +277,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    backgroundColor: '#F7F8FA',
+    backgroundColor: Colors.surfaceInput,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -257,7 +285,30 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: Colors.iconDark,
     borderWidth: 1,
-    borderColor: '#ECEEF0',
+    borderColor: Colors.inputBarBorder,
+  },
+  avatarPickerGroup: {
+    marginBottom: 14,
+  },
+  avatarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  avatarOption: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.avatarOptionBg,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  avatarOptionSelected: {
+    backgroundColor: Colors.avatarOptionSelectedBg,
+    borderColor: Colors.avatarOptionSelectedBorder,
+    borderWidth: 1.5,
   },
   colorGroup: {
     marginBottom: 20,
@@ -299,7 +350,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.avatarPreviewBg,
     alignItems: 'center',
     justifyContent: 'center',
   },

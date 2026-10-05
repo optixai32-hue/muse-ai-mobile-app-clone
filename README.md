@@ -10,12 +10,12 @@ Built with **Expo (SDK 57)**, **React Native 0.86**, **Expo Router**, and **Type
 
 - **Google Sign-In Authentication:** Beautiful onboarding screen with official 4-color SVG Google sign-in button.
 - **Header & 3D Character Mascot:** Sticky top header featuring Cooper's 3D portrait, floating name pill, 2-line menu with unread indicator dot, and 3-dots action sheet.
-- **Real-Time Interactive Chat:** Peach user bubbles, soft gray agent bubbles, date dividers, typing indicator animations, and intelligent simulated response loop.
+- **AI Chat With Connected Tools:** Cooper can answer normally, use Browserbase browser sessions, and call connected Composio tools for workspace workflows.
 - **Stadium Floating Dock:** Bottom capsule dock switching between **Chat**, **Feed**, **Ideas**, **Tasks**, and **Settings**.
 - **Slide-in Session Drawer:** Main chat shortcut, searchable side chat history with unread indicators, and bottom compose toolbar.
 - **Agent Personalization Modal:** Live preview editor for agent name, role subtitle, 5 emblem icons, and 6 aura theme colors.
-- **Autonomous Tasks & Goals:** Recurring checks manager with active/paused toggles and instantaneous simulated manual runs.
-- **Settings & Connectors:** Plan usage progress tracker, 7 tool integrations (Google, Notion, GitHub, Slack, Linear, Figma, X), monthly/yearly Pro pricing modal, and theme preferences.
+- **Autonomous Tasks & Goals:** Recurring schedules are saved in Supabase, can be run manually, and are executed by the `agent-run` Edge Function dispatcher.
+- **Settings & Connectors:** Tool connection management for Composio-backed apps such as Gmail, Slack, and Google Calendar.
 
 ---
 
@@ -23,7 +23,13 @@ Built with **Expo (SDK 57)**, **React Native 0.86**, **Expo Router**, and **Type
 
 For an exhaustive, file-by-file breakdown explaining the architecture, dependencies, data flow, and documented code snippets for every file, see:
 
-👉 [**`CODEBASE_EXPLANATION.md`**](./CODEBASE_EXPLANATION.md)
+👉 [**`docs/CODEBASE_EXPLANATION.md`**](./docs/CODEBASE_EXPLANATION.md)
+
+Useful implementation docs:
+
+- [Scheduled AI Agent Tasks](./docs/scheduled-agent-tasks.md)
+- [Composio Tools Setup](./docs/COMPOSIO_TOOLS_SETUP.md)
+- [Edge Function: Composio + Browserbase](./supabase/functions/agent-run/README.md)
 
 ---
 

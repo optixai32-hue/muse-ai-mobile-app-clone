@@ -2,6 +2,32 @@
 
 Use these prompts one by one to add Composio-powered tool connections to the existing Muse AI app. The flow starts with Supabase schema, then moves to app data, settings UI, Composio connection handling, and finally AI agent integration.
 
+## Current Implementation Notes
+
+The app now has both connection management and agent execution paths:
+
+- `src/lib/composioBackend.ts` handles Composio connect/status/disconnect flows and syncs `user_tool_connections`.
+- `src/lib/composioAgent.ts` creates a user-scoped Composio session for chat agent tool use.
+- `supabase/functions/agent-run/index.ts` executes Composio from Supabase Edge for direct runs and scheduled tasks.
+- The Edge Function can run direct `composioToolSlug` calls or create a Tool Router session from `composioToolkitSlug` plus `composioUseCase`.
+- Scheduled tasks may omit explicit Composio fields when `delivery` maps to a supported toolkit. Current inference supports Slack, Gmail/email, Google Calendar, Notion, Microsoft Teams, and Discord.
+- Direct Composio execution always sends an `arguments` object. Avoid top-level `text` payloads for tool execution.
+- For scheduled external delivery, the function drafts message content with OpenAI when useful, executes Composio, then feeds the connected tool result back into the final OpenAI summary.
+- OpenAI scheduled-task calls use the Responses API with `instructions` and plain string `input`; if OpenAI returns an unsupported message format error, the Edge Function retries through Chat Completions.
+
+Supabase Edge requires these secrets:
+
+```bash
+supabase secrets set \
+  SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co" \
+  SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" \
+  COMPOSIO_API_KEY="YOUR_COMPOSIO_API_KEY" \
+  OPENAI_API_KEY="YOUR_OPENAI_API_KEY" \
+  BROWSERBASE_API_KEY="YOUR_BROWSERBASE_API_KEY"
+```
+
+`COMPOSIO_API_KEY` must have connected-account read access and Tool Router session search/execute access.
+
 ## Step 1: Supabase DB Schema
 
 ```txt

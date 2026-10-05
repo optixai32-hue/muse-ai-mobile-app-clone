@@ -70,7 +70,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         accessibilityLabel={`${agentName} profile`}
         accessibilityRole="button">
         <View style={styles.mascotContainer}>
-          <MascotAvatar size={54} />
+          <MascotAvatar size={54} icon={mascotIcon} color={mascotColor} />
         </View>
 
         {/* Floating Capsule Name Pill */}
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#0066FF',
+    backgroundColor: Colors.statusBlue,
     borderWidth: 1.5,
     borderColor: Colors.white,
   },

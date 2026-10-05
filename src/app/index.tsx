@@ -54,7 +54,7 @@ export default function SignInScreen() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
-
+        console.log(data.session.access_token)
         router.replace('/(tabs)/chat')
       }
     })
