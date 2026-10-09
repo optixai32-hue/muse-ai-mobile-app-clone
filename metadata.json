@@ -1,0 +1,8 @@
+{
+  "name": "Muse AI Clone",
+  "description": "Autonomous AI Agent & Chat Companion for Recurring Tasks, Goals, and Automated Workflows with Cooper AI",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
